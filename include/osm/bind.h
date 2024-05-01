@@ -1,3 +1,5 @@
+#ifndef OSM_BIND_H
+#define OSM_BIND_H
 
 /**
  * Bind to the next available onboard socket in the given directory
@@ -12,3 +14,4 @@ int osm_bind_local(int sockfd, const char *sock_dir);
  */
 int osm_open_onboard(char *sock_dir);
 
+#endif

@@ -12,6 +12,12 @@ CFLAGS ?= -Werror -Wall
 build: build_dir $(OBJS)
 	$(CC) -shared -o $(BUILD_DIR)/libopensmarts.so $(addprefix $(OBJ_DIR)/, $(OBJS))
 
+install:
+	install -m 755 ./build/libopensmarts.so /usr/lib64/libopensmarts.so
+	rm -rf /usr/include/osm
+	mkdir -p /usr/include/osm
+	cp -r ./include/osm /usr/include
+
 %.o: $(SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c -fpic -I$(INCLUDE_DIR) -o $(BUILD_DIR)/artifacts/$@ $<
 

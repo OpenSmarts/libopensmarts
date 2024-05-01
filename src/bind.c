@@ -7,6 +7,9 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 
+
+#define MAX_ID 0xFFFF
+
 /**
  * The required characters to represent an id as a file name
  * id - the id to get translated to a file name
@@ -78,18 +81,30 @@ int osm_bind_local(int sockfd, const char *sock_dir)
 	}
 
 	// sequentially try to bind
-	int id = 0;
+	uint id = 0;
+	uint offset = offsetof(struct sockaddr_un, sun_path);
 	while(_need_chars(id) + len < sizeof(name.sun_path) - 1)
 	{
+		if (id > MAX_ID)
+			return -1;
+
 		// write file name
 		_write_name(id, name.sun_path + len);
 		
 		// try to bind
-		int size = offsetof(struct sockaddr_un, sun_path) + strlen(name.sun_path);
+		errno = 0;
+		int err = bind(sockfd, (struct sockaddr *) &name, offset + strlen(name.sun_path));
 
-		if (bind(sockfd, (struct sockaddr *) &name, size) > 0)
+		if (err == 0)
 		{
+			printf("Bound!\n");
 			return 0;
+		}
+		else if (errno != EADDRINUSE)
+		{
+			// If not bound and it's not due to an address in use error
+			// then we have an actual problem
+			return -1;
 		}
 
 		// inc id
@@ -106,7 +121,7 @@ int osm_bind_local(int sockfd, const char *sock_dir)
  */
 int osm_open_onboard(char *sock_dir)
 {
-	int sockfd = socket(AF_LOCAL, SOCK_DGRAM, 0);
+	int sockfd = socket(AF_LOCAL, SOCK_SEQPACKET, 0);
 	if (sockfd < 0)
 	{
 		perror("socket");
@@ -123,7 +138,7 @@ int osm_open_onboard(char *sock_dir)
 		bound = osm_bind_local(sockfd, sock_dir);
 	}
 	
-	if (bound < 0)
+	if (bound != 0)
 	{
 		perror("bind");
 		close(sockfd);
@@ -133,6 +148,19 @@ int osm_open_onboard(char *sock_dir)
 	return sockfd;
 }
 
-
-
+/**
+ * Bind a new network socket
+ * Should only be called by one process on the machine.
+ *
+ * If more than one device needs to be exposed through this system, use a
+ * master process to handle internet traffic and export each device as a
+ * sub-device.
+ *
+ * return - a negative number on error, or the 
+ */
+int osm_open_network()
+{
+	int sockfd = socket(AF_INET6, SOCK_STREAM, 0);
+	return sockfd;
+}
 
