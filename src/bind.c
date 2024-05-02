@@ -1,11 +1,15 @@
 #include "osm/bind.h"
+#include "osm/utils.h"
 
 #include <errno.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <unistd.h>
 
 #include <sys/socket.h>
 #include <sys/un.h>
+
+#include <threads.h>
 
 
 #define MAX_ID 0xFFFF
@@ -122,9 +126,8 @@ int osm_bind_local(int sockfd, const char *sock_dir)
 int osm_open_onboard(char *sock_dir)
 {
 	int sockfd = socket(AF_LOCAL, SOCK_SEQPACKET, 0);
-	if (sockfd < 0)
+	if (sockfd == -1)
 	{
-		perror("socket");
 		return sockfd;
 	}
 
@@ -140,12 +143,61 @@ int osm_open_onboard(char *sock_dir)
 	
 	if (bound != 0)
 	{
-		perror("bind");
 		close(sockfd);
-		return bound;
+		return -1;
+	}
+	
+	listen(sockfd, 3);
+	return sockfd;
+}
+
+/**
+ * Listen for and return connections for a socket
+ * return - a vector containing all the threads which this function started
+ */
+Vector osm_listen_and_accept(int sockfd, thrd_start_t callback)
+{
+	Vector out = vect_init(sizeof(thrd_t));
+	thrd_t thread;
+
+	while(1)
+	{
+		// Try to accept a connection
+		errno = 0;
+		int fd = accept(sockfd, NULL, NULL);
+		if (fd == -1)
+		{
+			if (errno != ECONNABORTED && errno != EINTR)
+			{
+				break;
+			}
+			else
+				continue;
+		}
+		
+		// Create and store the connection thread
+		errno = 0;
+		int ret = thrd_create(&thread, callback, (void*)(uintptr_t)fd);
+		if(ret == thrd_success)
+		{
+			vect_push(&out, &thread);
+		}
+		else
+		{
+			if (ret == thrd_error)
+			{
+				perror("Error creating thread");
+			}
+			else if (ret == thrd_nomem)
+			{
+				fprintf(stderr, "Thread out of memory. Shutting down.\n");
+			}
+			break;
+		}
+
 	}
 
-	return sockfd;
+	return out;
 }
 
 /**
