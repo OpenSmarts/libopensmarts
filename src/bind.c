@@ -87,8 +87,8 @@ int osm_bind_local(int sockfd, const char *sock_dir)
 	}
 
 	// sequentially try to bind
-	uint id = 0;
-	uint offset = offsetof(struct sockaddr_un, sun_path);
+	unsigned int id = 0;
+	unsigned int offset = offsetof(struct sockaddr_un, sun_path);
 	while(_need_chars(id) + len < sizeof(name.sun_path) - 1)
 	{
 		if (id > MAX_ID)
