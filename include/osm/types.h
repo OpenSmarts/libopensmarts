@@ -57,7 +57,7 @@ bool osm_is_nan(OSMFloat f);
 /// if positive infinity, returns 1
 /// if negative infinity, returns -1
 /// otherwise returns 0
-uint8_t osm_is_infinity(OSMFloat f);
+int8_t osm_is_infinity(OSMFloat f);
 
 
 
@@ -88,10 +88,10 @@ OSMColor osm_rgb_to_color(uint8_t r, uint8_t g, uint8_t b);
 OSMColor osm_int_to_color(uint32_t c);
 
 /// Deep copy a color struct
-OSMColor osm_color_copy(OSMColor color);
+OSMColor osm_color_copy(const OSMColor *color);
 
 /// Free a color struct
-void osm_color_free(OSMColor color);
+void osm_color_free(OSMColor *color);
 
 
 
