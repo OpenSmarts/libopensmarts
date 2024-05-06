@@ -1,6 +1,7 @@
 #ifndef OSM_TYPES_H
 #define OSM_TYPES_H
 
+#include <osm/utils.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -47,9 +48,14 @@ typedef struct {
 } OSMFloatBreakdown;
 
 /// Break a OSMFloat into it's constituant parts
-OSMFloatBreakdown osm_break_float(OSMFloat f);
+OSMFloatBreakdown osm_float_to_break(OSMFloat f);
 /// Break a native float into constituant parts
-OSMFloatBreakdown osm_break_native_float(double d);
+OSMFloatBreakdown osm_native_float_to_break(double d);
+
+/// Convert a breakdown to a float
+OSMFloat osm_break_to_float(OSMFloatBreakdown b);
+/// Convert a breakdown to a native float
+double osm_break_to_native_float(OSMFloatBreakdown b);
 
 /// Convert an osm float to a native one
 double osm_float_to_native(OSMFloat f);
@@ -69,6 +75,11 @@ int8_t osm_is_infinity(OSMFloat f);
 
 // Color
 
+typedef struct {
+	uint8_t val;
+	uint8_t *name;
+} OSMColorChannel;
+
 /// Color struct with support for extra channels (up to 255)
 /// each channel has a range from 0-255
 typedef struct {
@@ -76,29 +87,21 @@ typedef struct {
 		r,
 		g,
 		b;
-
-	uint8_t extra;
-	uint8_t *ex;
-	uint8_t **ex_names; /// Extra channel names encoded in UTF-8
+	Vector
+		extra;
 } OSMColor;
-
-/// Output rgb from a color struct
-uint32_t osm_to_rgb(OSMColor color);
 
 /// Output color struct from 24-bit RGB
 OSMColor osm_rgb_to_color(uint8_t r, uint8_t g, uint8_t b);
 
-/// Parse a 32-bit integer as a 24-bit color.
-/// Assumes r, g, and b channels are stores in
-/// the lower 24 bits of the number.
-OSMColor osm_int_to_color(uint32_t c);
-
 /// Deep copy a color struct
-OSMColor osm_color_copy(const OSMColor *color);
+OSMColor osm_color_copy(OSMColor *color);
 
 /// Free a color struct
 void osm_color_free(OSMColor *color);
 
+/// Add an extra channel to a color
+void osm_add_channel(OSMColor *color, uint8_t val, uint8_t *name);
 
 
 // Selection

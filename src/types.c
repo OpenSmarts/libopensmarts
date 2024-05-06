@@ -64,7 +64,7 @@ OSMFloatBreakdown _osm_ieee754_enlarge(uint64_t d, uint16_t m_len, uint16_t f_le
 		
 		// Denormal numbers (TODO)
 		out.mantissa = OSM_FLOAT_EXPO_BIAS - bias;
-		if (OSM_FLOAT_FRAC_LEN)
+		if (OSM_FLOAT_FRAC_LEN >= f_len)
 			out.fraction = out.fraction << (OSM_FLOAT_FRAC_LEN - f_len);  // corrected fraction based on difference in bit lengths
 		bias = (uint16_t) ceil(log2(out.fraction));
 		
@@ -252,7 +252,7 @@ double _osm_ieee754_assemble(OSMFloatBreakdown b, uint16_t m_len, uint16_t f_len
  * WARNING: This code assumes that the compiler
  * supports IEEE 754 floating point numbers.
  *
- * WARNING: This code flushes denormal values to zero
+ * WARNING: This code flushes subnormal values to zero
  *
  * WARNING: This code flushes out of bounds values to infinity
  *
@@ -312,38 +312,35 @@ int8_t osm_is_infinity(OSMFloat f)
 	return _osm_is_infinity(osm_float_to_break(f));
 }
 
+
+/// End of float funcs
+
+
 OSMColor osm_rgb_to_color(uint8_t r, uint8_t g, uint8_t b)
 {
 	OSMColor out = {
 		.r = r,
 		.g = g,
 		.b = b,
-		.extra = 0,
-		.ex = NULL,
-		.ex_names = NULL
+		.extra = vect_init(sizeof(OSMColorChannel)),
 	};
 	return out;
 }
 
-OSMColor osm_color_copy(const OSMColor *color)
+OSMColor osm_color_copy(OSMColor *color)
 {
 
 	OSMColor out = {
 		.r = color->r,
 		.g = color->g,
 		.b = color->b,
-		.extra = color->extra,
-		.ex = malloc(color->extra),
-		.ex_names = malloc(color->extra * sizeof(uint8_t *))
+		.extra = vect_init(sizeof(OSMColorChannel)),
 	};
 
-	for (uint8_t i = 0; i < color->extra; i++)
+	for (uint8_t i = 0; i < color->extra.count; i++)
 	{
-		// char should be just one byte long anyways
-		size_t len = strlen((char *)color->ex_names[i]) + 1;
-		uint8_t *buf = malloc(strlen((char *)color->ex_names[i]) + 1);
-		memcpy(buf, color->ex_names[i], len + 1);
-		out.ex_names[i] = buf;
+		OSMColorChannel *c = vect_get(&color->extra, i);
+		osm_add_channel(&out, c->val, c->name);
 	}
 
 	return out;
@@ -355,16 +352,25 @@ void osm_color_free(OSMColor *color)
 	color->g = 0;
 	color->b = 0;
 
-	for (uint8_t i = 0; i < color->extra; i++)
+	for (uint8_t i = 0; i < color->extra.count; i++)
 	{
-		free(color->ex_names[i]);
+		OSMColorChannel *c = vect_get(&color->extra, i);
+		free(c->name);
 	}
 
-	free(color->ex_names);
-	free(color->ex);
-
-	color->ex_names = NULL;
-	color->ex = NULL;
-
-	color->extra = 0;
+	vect_end(&color->extra);
 }
+
+void osm_add_channel(OSMColor *color, uint8_t val, uint8_t *name)
+{
+	size_t len = strlen((char *)name) + 1;
+	OSMColorChannel add = {
+		.val = val,
+		.name = malloc(len)
+	};
+
+	memcpy(add.name, name, len);
+
+	vect_push(&color->extra, &add);
+}
+
