@@ -33,6 +33,12 @@ typedef int64_t OSMInteger;
 /// Represents a floating point (IEEE 754 64 bit)
 typedef uint64_t OSMFloat;
 
+#define OSM_FLOAT_EXPO_LEN 11
+#define OSM_FLOAT_EXPO_MASK 0x7ff
+#define OSM_FLOAT_EXPO_BIAS 0x3ff
+#define OSM_FLOAT_FRAC_LEN 52
+#define OSM_FLOAT_FRAC_MASK 0xffffffffffffff
+
 /// Represents the broken down floating point number
 typedef struct {
 	uint8_t sign;

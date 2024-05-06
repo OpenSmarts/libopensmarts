@@ -16,9 +16,9 @@ OSMFloatBreakdown osm_float_to_break(OSMFloat f)
 {
 	OSMFloatBreakdown out;
 
-	out.sign = f >> 63;
-	out.mantissa = (f >> 52) & 0x7ff;
-	out.fraction = f & 0xfffffffffffff;
+	out.sign = f >> (OSM_FLOAT_EXPO_LEN + OSM_FLOAT_FRAC_LEN);
+	out.mantissa = (f >> OSM_FLOAT_FRAC_LEN) & OSM_FLOAT_EXPO_MASK;
+	out.fraction = f & OSM_FLOAT_FRAC_MASK;
 
 	return out;
 }
@@ -39,31 +39,36 @@ OSMFloatBreakdown _osm_ieee754_enlarge(uint64_t d, uint16_t m_len, uint16_t f_le
 	mask = (1 << f_len) - 1;
 	out.fraction = d & mask;
 	
+	// Create corrected mantissa and fraction (if not denormal)
 	if (out.mantissa >= bias)
 	{
 		// non-negative exponent
 		out.mantissa -= bias;
-		out.mantissa += 0x3ff;
+		out.mantissa += OSM_FLOAT_EXPO_BIAS;
 	}
 	else if (out.mantissa < bias && out.mantissa > 0)
 	{
-		out.mantissa = bias - out.mantissa;           // true exponent (abs value)
-		out.mantissa = 0x3ff - out.mantissa;          // corrected for double precision numbers (won't overflow since we use this function with smaller mantissa)
-		out.fraction = out.fraction << (52 - f_len);  // corrected fraction based on difference in bit lengths
+		// true exponent (abs value)
+		out.mantissa = bias - out.mantissa;
+		// corrected for double precision numbers (won't overflow since we use this function with smaller mantissa)
+		out.mantissa = OSM_FLOAT_EXPO_BIAS - out.mantissa;
+		// corrected fraction based on difference in bit lengths
+		out.fraction = out.fraction << (OSM_FLOAT_FRAC_LEN - f_len);
 	}
-
+	
+	// Handle zero and denormal
 	if (out.mantissa == 0)
 	{
 		if (out.fraction == 0)
 			return out;
 		
 		// Denormal numbers (TODO)
-		out.mantissa = 0x3ff - bias;                  // corrected mantissa 
-		out.fraction = out.fraction << (52 - f_len);  // corrected fraction based on difference in bit lengths
+		out.mantissa = OSM_FLOAT_EXPO_BIAS - bias;
+		if (OSM_FLOAT_FRAC_LEN)
+		out.fraction = out.fraction << (OSM_FLOAT_FRAC_LEN - f_len);  // corrected fraction based on difference in bit lengths
 		bias = (uint16_t) ceil(log2(out.fraction));
 		
 	}
-
 
 	return out;
 }
@@ -112,20 +117,110 @@ OSMFloat osm_break_to_float(OSMFloatBreakdown b)
 	
 	if (b.sign)
 		out = 1;
-	out = out << 63;
+	out = out << (OSM_FLOAT_FRAC_LEN + OSM_FLOAT_EXPO_LEN);
 
-	out |= (OSMFloat)(b.mantissa & 0x7ff) << 52;
+	out |= (OSMFloat)(b.mantissa & OSM_FLOAT_EXPO_MASK) << OSM_FLOAT_FRAC_LEN;
 
-	out |= b.fraction & 0xfffffffffffff;
+	out |= b.fraction & OSM_FLOAT_FRAC_MASK;
 
 	return out;
 }
 
+bool _osm_is_nan(const OSMFloatBreakdown b)
+{
+	return b.mantissa == OSM_FLOAT_EXPO_MASK && b.fraction != 0;
+}
+
+int8_t _osm_is_infinity(const OSMFloatBreakdown b)
+{
+	if (b.mantissa == OSM_FLOAT_EXPO_MASK && b.fraction == 0)
+	{
+		if (b.sign)
+			return -1;
+		return 1;
+	}
+	return 0;
+}
+
+/// Handle NaN
+double _osm_ieee754_nan(OSMFloatBreakdown b, uint16_t m_len, uint16_t f_len)
+{
+}
+
+/// Handle subnormal numbers
+double _osm_ieee754_subnormal(OSMFloatBreakdown b, uint16_t m_len, uint16_t f_len)
+{
+	// TODO
+	return 0;
+}
+
+/**
+ * Converts a breakdown to a floating point number with given mantissa and
+ * fraction length (so long as the format is less than or equal to 64 bits)
+ */
 double _osm_ieee754_assemble(OSMFloatBreakdown b, uint16_t m_len, uint16_t f_len)
 {
-	double out = 0;
-	// Check 
-	return out;
+	uint64_t out = 0;
+	
+	// Sign (assumed to be at end)
+	out |= b.sign << (m_len + f_len);
+
+	if (b.mantissa == 0 || )
+	{
+		// denormal numbers (TODO)
+		return *(double *)&out;
+	}
+	
+	// Mantissa mask
+	uint64_t mask = (1 << m_len) - 1;
+	
+	if (_osm_is_nan(b))
+	{
+		// Handle NaN
+		out |= mask << f_len;
+		if (f_len >= OSM_FLOAT_FRAC_LEN)
+			out |= b.fraction << (f_len - OSM_FLOAT_FRAC_LEN);
+		else
+			out |= b.fraction >> (OSM_FLOAT_FRAC_LEN - f_len);
+
+		// Make sure it's still nan just in case all the
+		// fraction bits got cleared
+		mask = (1 << f_len) - 1;
+		if ((out & mask) == 0)
+			out |= 1;
+
+		return *(double *)&out;
+	}
+	
+	// Handle mantissa
+	uint64_t bias = mask >> 1;
+	if (b.mantissa > OSM_FLOAT_EXPO_BIAS)
+	{
+		b.mantissa -= OSM_FLOAT_EXPO_BIAS;
+		b.mantissa += bias;
+	}
+	else
+	{
+		b.mantissa = OSM_FLOAT_EXPO_BIAS - b.mantissa;
+		b.mantissa = bias - b.mantissa;
+	}
+
+	// Fraction (assumed to be low bits)
+	mask = (1 << f_len) - 1;
+
+	if (f_len >= OSM_FLOAT_FRAC_LEN)
+		out |= b.fraction << (f_len - OSM_FLOAT_FRAC_LEN);
+	else
+		out |= b.fraction >> (OSM_FLOAT_FRAC_LEN - f_len);
+
+	if ( && (out & mask) != 0)
+		out &= ~mask;
+
+#ifdef _OSM_FLOAT_USE_HIGH_BITS
+	out = out << (64 - (m_len + f_len + 1));
+#endif
+
+	return *(double *)&out;
 }
 
 /*
@@ -136,26 +231,26 @@ double _osm_ieee754_assemble(OSMFloatBreakdown b, uint16_t m_len, uint16_t f_len
  *
  * WARNING: This code flushes out of bounds values to infinity
  *
- * INFO: This code keeps NaN values
+ * INFO: The fraction part of NaN values are set to 1
  *
  * Should probably be updated with more formats if I was
  * feeling frisky.
  */
 double osm_break_to_native_float(OSMFloatBreakdown b)
 {
-	double out = 0;
-
 	switch(sizeof(double))
 	{
 		case 2: {
+			return _osm_ieee754_assemble(b, 5, 10);
 		} break;
 		
 		case 4: {
+			return _osm_ieee754_assemble(b, 8, 23);
 		} break;
 		
 		case 8: {
 			OSMFloat f = osm_break_to_float(b);
-			out = * (double *) &f;
+			return * (double *) &f;
 		} break;
 		
 		default:
@@ -163,10 +258,7 @@ double osm_break_to_native_float(OSMFloatBreakdown b)
 			break;
 	}
 
-	if (b.sign)
-		out = -out;
-
-	return out;
+	return 0;
 }
 
 double osm_float_to_native(OSMFloat f)
@@ -187,20 +279,12 @@ OSMFloat osm_native_to_float(double d)
 
 bool osm_is_nan(OSMFloat f)
 {
-	OSMFloatBreakdown b = osm_float_to_break(f);
-	return b.mantissa == 0x3ff && b.fraction != 0;
+	return _osm_is_nan(osm_float_to_break(f));
 }
 
 int8_t osm_is_infinity(OSMFloat f)
 {
-	OSMFloatBreakdown b = osm_float_to_break(f);
-	if (b.mantissa == 0x3ff && b.fraction == 0)
-	{
-		if (b.sign)
-			return -1;
-		return 1;
-	}
-	return 0;
+	return _osm_is_infinity(osm_float_to_break(f));
 }
 
 OSMColor osm_rgb_to_color(uint8_t r, uint8_t g, uint8_t b)

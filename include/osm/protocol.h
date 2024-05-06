@@ -19,7 +19,7 @@ extern const char OSM_MAGIC_INIT[4];
 extern const char OSM_MAGIC_FRAME[4];
 
 /**
- * The init frame from the controller
+ * The init frame header from the controller
  * includes the uuid of the sender and the public
  * key the sender will use to sign messages (up to 4096 bytes)
  *
@@ -28,10 +28,20 @@ extern const char OSM_MAGIC_FRAME[4];
  */
 typedef struct {
 	uint8_t magic[4];
+	uint8_t version;
 	uint8_t uuid[8];
 	uint8_t keytype;
 	uint16_t keylen;
-	uint8_t pubkey[4096];
+} OSMInitFrameHeader;
+
+/**
+ * The max possible length of an init frame.
+ * The actual frame length will vary based on the size of the
+ * pubkey.
+ */
+typedef struct {
+	OSMInitFrameHeader header;
+	uint8_t key[4096];
 } OSMInitFrame;
 
 /**
@@ -41,22 +51,27 @@ typedef struct {
 typedef struct {
 	uint8_t magic[4];
 	uint8_t uuid[8];
+} OSMPairHeader;
 
-} OSMInitPairfmt;
+/**
+ * Represents a frame which describes
+ */
+typedef struct {
+	OSMPairHeader header;
+	uint8_t data[1024];        // message data
+} OSMPairFrame;
 
 
 /**
- * All OSM messages are at most 2048 bytes long and include a gpg signature at
- * the start of the data to validate the sender.  The signature length is determined based on
- * the signing key of the sender.
+ * Main OSM Frame header: All frames contain this plus a secondary header
+ * with more information based on the frame's type
  */
 typedef struct {
 	uint8_t magic[4];          // magic number
 	uint8_t uuid[8];           // device that this message is from
 	uint8_t sub_uuid[8];       // sub device that this message is from
 	uint8_t frame_type;        // type of frame
-	uint8_t data[2048];       // message data
-} OSMFrame;
+} OSMFrameHeader;
 
 /*
  * Once the data has been validated, it is one of the following frame types
@@ -81,20 +96,59 @@ typedef struct {
  * Result of a sent frame
  */
 typedef struct {
-	uint8_t res_type;   // the type of frame sent
-	uint8_t a;
-} OSMResFrame;
+	uint8_t res_type;   // the type of frame we are replying to
+} OSMResHeader;
 
+/**
+ * Header for frames where we are attempting to set
+ * data on the other device
+ */
 typedef struct {
 	uint8_t num_set;
-	uint8_t pairs[2047];
-} OSMSetFrame;
+} OSMSetHeader;
+
+/**
+ * Header for frames where we are attempting to get
+ * data from the other device
+ */
+typedef struct {
+	uint8_t num_get;
+} OSMGetHeader;
+
+/**
+ * Header for frames where we are sending
+ * an arbitrary data payload to the other device
+ */
+typedef struct {
+	uint8_t number;      // Which "set" this data frame belongs to (if multiple data streams are being sent at once)
+	uint16_t len;        // How many significant bytes are in this frame
+} OSMDataHeader;
+
+/**
+ * Header for streams where we are going to send a
+ * continuous stream of data to the other device
+ */
+typedef struct {
+} OSMStreamOutHeader;
+
+/**
+ * Header for streams where we are asking for
+ * a continuous data stream from the other device
+ */
+typedef struct {
+} OSMStreamInHeader;
+
+/**
+ * Header for a control frame where we are closing
+ * a previously opened stream.
+ */
+typedef struct {
+} OSMStreamCloseHeader;
 
 typedef struct {
 	uint8_t control_id[8];       // The ID of the control we are setting the value on
-	uint8_t val_type;            // The data type of the value (or 0 for future data frames)
 	uint8_t value[8];            // The new value for the control, or the data frame number we will next use
-} OSMSetControl;
+} OSMControl;
 
 
 
