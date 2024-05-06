@@ -65,7 +65,7 @@ OSMFloatBreakdown _osm_ieee754_enlarge(uint64_t d, uint16_t m_len, uint16_t f_le
 		// Denormal numbers (TODO)
 		out.mantissa = OSM_FLOAT_EXPO_BIAS - bias;
 		if (OSM_FLOAT_FRAC_LEN)
-		out.fraction = out.fraction << (OSM_FLOAT_FRAC_LEN - f_len);  // corrected fraction based on difference in bit lengths
+			out.fraction = out.fraction << (OSM_FLOAT_FRAC_LEN - f_len);  // corrected fraction based on difference in bit lengths
 		bias = (uint16_t) ceil(log2(out.fraction));
 		
 	}
@@ -145,13 +145,41 @@ int8_t _osm_is_infinity(const OSMFloatBreakdown b)
 /// Handle NaN
 double _osm_ieee754_nan(OSMFloatBreakdown b, uint16_t m_len, uint16_t f_len)
 {
+	uint64_t out = 0;
+	uint64_t mask = (1 << m_len) - 1;
+
+	// sign
+	out |= b.sign << (m_len + f_len);
+	// mantissa
+	out |= mask << f_len;
+	
+	// fraction
+	if (f_len >= OSM_FLOAT_FRAC_LEN)
+		out |= b.fraction << (f_len - OSM_FLOAT_FRAC_LEN);
+	else
+		out |= b.fraction >> (OSM_FLOAT_FRAC_LEN - f_len);
+
+	// Make sure it's still nan just in case all the
+	// fraction bits got cleared
+	mask = (1 << f_len) - 1;
+	if ((out & mask) == 0)
+		out |= 1;
+
+#ifdef _OSM_FLOAT_USE_HIGH_BITS
+	out = out << (64 - (m_len + f_len + 1));
+#endif
+	return *(double *)&out;
 }
 
 /// Handle subnormal numbers
 double _osm_ieee754_subnormal(OSMFloatBreakdown b, uint16_t m_len, uint16_t f_len)
 {
 	// TODO
-	return 0;
+	uint64_t out = 0;
+#ifdef _OSM_FLOAT_USE_HIGH_BITS
+	out = out << (64 - (m_len + f_len + 1));
+#endif
+	return *(double *)&out;
 }
 
 /**
@@ -160,37 +188,19 @@ double _osm_ieee754_subnormal(OSMFloatBreakdown b, uint16_t m_len, uint16_t f_le
  */
 double _osm_ieee754_assemble(OSMFloatBreakdown b, uint16_t m_len, uint16_t f_len)
 {
+
+	if (_osm_is_nan(b))
+		return _osm_ieee754_nan(b, m_len, f_len);
+	else if (b.mantissa == 0)
+		return _osm_ieee754_subnormal(b, m_len, f_len);
+
 	uint64_t out = 0;
 	
 	// Sign (assumed to be at end)
 	out |= b.sign << (m_len + f_len);
-
-	if (b.mantissa == 0 || )
-	{
-		// denormal numbers (TODO)
-		return *(double *)&out;
-	}
 	
 	// Mantissa mask
 	uint64_t mask = (1 << m_len) - 1;
-	
-	if (_osm_is_nan(b))
-	{
-		// Handle NaN
-		out |= mask << f_len;
-		if (f_len >= OSM_FLOAT_FRAC_LEN)
-			out |= b.fraction << (f_len - OSM_FLOAT_FRAC_LEN);
-		else
-			out |= b.fraction >> (OSM_FLOAT_FRAC_LEN - f_len);
-
-		// Make sure it's still nan just in case all the
-		// fraction bits got cleared
-		mask = (1 << f_len) - 1;
-		if ((out & mask) == 0)
-			out |= 1;
-
-		return *(double *)&out;
-	}
 	
 	// Handle mantissa
 	uint64_t bias = mask >> 1;
@@ -198,12 +208,30 @@ double _osm_ieee754_assemble(OSMFloatBreakdown b, uint16_t m_len, uint16_t f_len
 	{
 		b.mantissa -= OSM_FLOAT_EXPO_BIAS;
 		b.mantissa += bias;
+		if (b.mantissa >= mask)
+		{
+			// Create infinity
+			out |= mask << f_len;
+#ifdef _OSM_FLOAT_USE_HIGH_BITS
+			out = out << (64 - (m_len + f_len + 1));
+#endif
+			return *(double *)&out;
+		}
 	}
 	else
 	{
 		b.mantissa = OSM_FLOAT_EXPO_BIAS - b.mantissa;
 		b.mantissa = bias - b.mantissa;
+
+		if (b.mantissa >= mask || b.mantissa == 0)
+		{
+			// wrapped around, should create subnormal
+			return _osm_ieee754_subnormal(b, m_len, f_len);
+		}
 	}
+
+	// write mantissa
+	out |= (b.mantissa & mask) << f_len;
 
 	// Fraction (assumed to be low bits)
 	mask = (1 << f_len) - 1;
@@ -212,9 +240,6 @@ double _osm_ieee754_assemble(OSMFloatBreakdown b, uint16_t m_len, uint16_t f_len
 		out |= b.fraction << (f_len - OSM_FLOAT_FRAC_LEN);
 	else
 		out |= b.fraction >> (OSM_FLOAT_FRAC_LEN - f_len);
-
-	if ( && (out & mask) != 0)
-		out &= ~mask;
 
 #ifdef _OSM_FLOAT_USE_HIGH_BITS
 	out = out << (64 - (m_len + f_len + 1));
@@ -231,7 +256,7 @@ double _osm_ieee754_assemble(OSMFloatBreakdown b, uint16_t m_len, uint16_t f_len
  *
  * WARNING: This code flushes out of bounds values to infinity
  *
- * INFO: The fraction part of NaN values are set to 1
+ * INFO: The fraction part of NaN values are set to 1 in some cases
  *
  * Should probably be updated with more formats if I was
  * feeling frisky.
@@ -317,7 +342,8 @@ OSMColor osm_color_copy(const OSMColor *color)
 		// char should be just one byte long anyways
 		size_t len = strlen((char *)color->ex_names[i]) + 1;
 		uint8_t *buf = malloc(strlen((char *)color->ex_names[i]) + 1);
-		memcpy(buf, color->ex_names[i], len);
+		memcpy(buf, color->ex_names[i], len + 1);
+		out.ex_names[i] = buf;
 	}
 
 	return out;
